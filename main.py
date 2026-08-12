@@ -89,7 +89,46 @@ male_values_neg = -male_values
 total_pop = male_values.sum() + female_values.sum()
 
 st.subheader(f"📍 {selected_sido} {selected_sigungu} {selected_dong}")
-st.write(f"총인구: **{total_pop:,}명** (남 {male_values.sum():,}명 · 여 {female_values.sum():,}명)")
+
+# -----------------------------------------------------------
+# 5-1) 평균연령 · 고령화율 계산하기
+# -----------------------------------------------------------
+# 나이 인덱스를 0~100으로 만들어요. ('100세 이상'은 100세로 계산합니다)
+age_index = list(range(101))
+age_total = male_values + female_values  # 나이별(남+여) 인구
+
+# 평균연령 = (나이 × 해당 나이 인구)의 합 ÷ 총인구
+avg_age = (pd.Series(age_index) * age_total).sum() / total_pop
+
+# 고령화율 = 65세 이상 인구 ÷ 총인구 × 100
+elderly_total = age_total[65:].sum()  # 인덱스 65(=65세)부터 100(=100세 이상)까지
+aging_rate = elderly_total / total_pop * 100
+
+# 유소년(0~14세) 인구 비율도 함께 구해서, 아래 한 줄 설명에 활용해요.
+youth_total = age_total[0:15].sum()  # 인덱스 0(=0세)부터 14(=14세)까지
+youth_rate = youth_total / total_pop * 100
+
+# -----------------------------------------------------------
+# 5-2) 지표 카드 3개 나란히 보여주기
+# -----------------------------------------------------------
+is_aging_alert = aging_rate > 20  # 고령화율 20% 초과 여부 (초고령사회 기준선)
+
+metric_col1, metric_col2, metric_col3 = st.columns(3)
+
+with metric_col1:
+    st.metric("총인구", f"{total_pop:,}명")
+
+with metric_col2:
+    st.metric("평균연령", f"{avg_age:.1f}세")
+
+with metric_col3:
+    aging_label = "고령화율 ⚠️" if is_aging_alert else "고령화율"
+    st.metric(aging_label, f"{aging_rate:.1f}%")
+
+if is_aging_alert:
+    st.warning("⚠️ 고령화율이 20%를 넘는 동네예요. 어르신 인구 비중이 특히 높은 편이랍니다.")
+
+st.write(f"남 {male_values.sum():,}명 · 여 {female_values.sum():,}명")
 
 # -----------------------------------------------------------
 # 6) 인구 피라미드 그리기 (plotly 가로 막대그래프)
@@ -163,6 +202,29 @@ st.caption(
     "💡 막대에 마우스를 올리면 정확한 인구 수를 확인할 수 있어요. "
     "왼쪽은 남자, 오른쪽은 여자 인구이고, 맨 아래가 0세, 맨 위가 100세 이상이랍니다."
 )
+
+# -----------------------------------------------------------
+# 7) '아이가 많은 편인가요, 어르신이 많은 편인가요?' 한 줄 설명
+# -----------------------------------------------------------
+# 유소년(0~14세) 비율과 고령(65세 이상) 비율을 비교해서
+# 이 동네가 어느 쪽에 가까운지 자동으로 문장을 만들어줍니다.
+if aging_rate > youth_rate * 1.2:
+    summary_text = (
+        f"👴 이 동네는 어르신이 많은 편이에요. "
+        f"65세 이상 인구가 {aging_rate:.1f}%로, 0~14세 인구({youth_rate:.1f}%)보다 훨씬 많답니다."
+    )
+elif youth_rate > aging_rate * 1.2:
+    summary_text = (
+        f"👶 이 동네는 아이가 많은 편이에요. "
+        f"0~14세 인구가 {youth_rate:.1f}%로, 65세 이상 인구({aging_rate:.1f}%)보다 훨씬 많답니다."
+    )
+else:
+    summary_text = (
+        f"⚖️ 이 동네는 아이와 어르신 비율이 비교적 균형 잡혀 있어요. "
+        f"0~14세 {youth_rate:.1f}% · 65세 이상 {aging_rate:.1f}%로 큰 차이가 나지 않는답니다."
+    )
+
+st.info(summary_text)
 
 st.divider()
 st.success("여기까지! 선택하신 동네의 나이·성별 인구 구조를 잘 살펴보셨나요? 🎉")
