@@ -86,6 +86,35 @@ geojson_data = {
 }
 
 # -----------------------------------------------------------
+# 4-0-1) 지도 확대 범위를 직접 계산하기
+#    (fitbounds 자동 계산이 남양주시처럼 아주 작은 영역에서는
+#     제대로 동작하지 않을 때가 있어서, 위경도 범위를 직접 구해
+#     지도 확대 범위를 고정해줍니다)
+# -----------------------------------------------------------
+def get_lon_lat_bounds(geojson):
+    lons, lats = [], []
+
+    def collect(coords):
+        # 좌표 배열을 재귀적으로 파고들어 [경도, 위도] 쌍을 모두 모읍니다.
+        if isinstance(coords[0], (int, float)):
+            lons.append(coords[0])
+            lats.append(coords[1])
+        else:
+            for c in coords:
+                collect(c)
+
+    for feature in geojson["features"]:
+        collect(feature["geometry"]["coordinates"])
+
+    return min(lons), max(lons), min(lats), max(lats)
+
+
+min_lon, max_lon, min_lat, max_lat = get_lon_lat_bounds(geojson_data)
+# 살짝 여백을 줘서 경계선이 화면 끝에 딱 붙지 않도록 합니다.
+lon_pad = (max_lon - min_lon) * 0.08
+lat_pad = (max_lat - min_lat) * 0.08
+
+# -----------------------------------------------------------
 # 4-1) 기준선 슬라이더: 이 값 이상인 시군구만 진하게 칠해요
 # -----------------------------------------------------------
 st.subheader("🎚️ 기준선으로 나눠 보기")
@@ -152,9 +181,12 @@ fig.add_trace(
 )
 
 # 배경 지도(타일) 없이 경계 도형만 표시하도록 geo 설정
+# fitbounds 자동 계산 대신, 위에서 구한 위경도 범위로 직접 확대 범위를 지정합니다.
 fig.update_geos(
     visible=False,  # 기본 지도 배경(국경선, 바다색 등) 숨기기
-    fitbounds="locations",  # 우리 데이터가 있는 영역에 딱 맞게 확대
+    projection_type="mercator",
+    lonaxis_range=[min_lon - lon_pad, max_lon + lon_pad],
+    lataxis_range=[min_lat - lat_pad, max_lat + lat_pad],
 )
 
 fig.update_layout(
