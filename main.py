@@ -71,6 +71,29 @@ grouped["고령화율"] = (grouped["고령인구"] / grouped["전체인구"] * 1
 
 aging_df = grouped.reset_index()[["시군구코드", "전체인구", "고령인구", "고령화율"]]
 
+# 지도·표에 함께 쓸 수 있도록 시군구·시도 이름도 미리 붙여둡니다.
+name_lookup = df_year[["시군구코드", "시도", "시군구"]].drop_duplicates()
+aging_df = aging_df.merge(name_lookup, on="시군구코드", how="left")
+
+# -----------------------------------------------------------
+# 4-1) 기준선 슬라이더: 이 값 이상인 시군구만 진하게 칠해요
+# -----------------------------------------------------------
+st.subheader("🎚️ 기준선으로 나눠 보기")
+threshold = st.slider(
+    "고령화율 기준(%)을 정해보세요",
+    min_value=0,
+    max_value=50,
+    value=20,
+    step=1,
+)
+st.write(f"현재 기준: **{threshold}% 이상**인 시군구를 진하게 표시합니다.")
+
+above_label = f"{threshold}% 이상"
+below_label = f"{threshold}% 미만"
+aging_df["구분"] = aging_df["고령화율"].apply(
+    lambda x: above_label if x >= threshold else below_label
+)
+
 # -----------------------------------------------------------
 # 5) plotly 단계구분도(choropleth) 그리기
 #    - 배경 지도(타일) 없이 경계선만 그려요 (Mapbox 등 사용 안 함)
@@ -78,23 +101,43 @@ aging_df = grouped.reset_index()[["시군구코드", "전체인구", "고령인�
 #      locations는 우리 데이터의 '시군구코드'와 짝지어줍니다.
 #    - 둘 다 문자열(str)로 맞춰야 정확히 매칭돼요.
 # -----------------------------------------------------------
-fig = go.Figure(
+fig = go.Figure()
+
+# 기준 미만 지역: 회색으로 (지도에서 먼저 그려서 뒤에 깔리게)
+below_df = aging_df[aging_df["구분"] == below_label]
+fig.add_trace(
     go.Choropleth(
         geojson=geojson_data,
         featureidkey="properties.코드",
-        locations=aging_df["시군구코드"],
-        z=aging_df["고령화율"],
-        colorscale="OrRd",  # 연한 색 → 진한 색 (고령화율이 높을수록 진하게)
-        colorbar_title="고령화율(%)",
+        locations=below_df["시군구코드"],
+        z=[0] * len(below_df),
+        colorscale=[[0, "#D9D9D9"], [1, "#D9D9D9"]],  # 회색 고정
+        showscale=False,
         marker_line_color="white",
         marker_line_width=0.5,
-        # 마우스를 올리면 시군구 이름과 고령화율이 보이도록 customdata 사용
-        customdata=aging_df[["시군구코드", "고령화율"]].merge(
-            df_year[["시군구코드", "시군구"]].drop_duplicates(),
-            on="시군구코드",
-            how="left",
-        )["시군구"],
-        hovertemplate="<b>%{customdata}</b><br>고령화율: %{z:.2f}%<extra></extra>",
+        customdata=below_df[["시군구", "고령화율"]],
+        hovertemplate="<b>%{customdata[0]}</b><br>고령화율: %{customdata[1]:.2f}%<extra></extra>",
+        name=below_label,
+        showlegend=True,
+    )
+)
+
+# 기준 이상 지역: 진한 색으로 (뒤이어 그려서 위에 덧칠해지게)
+above_df = aging_df[aging_df["구분"] == above_label]
+fig.add_trace(
+    go.Choropleth(
+        geojson=geojson_data,
+        featureidkey="properties.코드",
+        locations=above_df["시군구코드"],
+        z=[1] * len(above_df),
+        colorscale=[[0, "#C0392B"], [1, "#C0392B"]],  # 진한 빨강 고정
+        showscale=False,
+        marker_line_color="white",
+        marker_line_width=0.5,
+        customdata=above_df[["시군구", "고령화율"]],
+        hovertemplate="<b>%{customdata[0]}</b><br>고령화율: %{customdata[1]:.2f}%<extra></extra>",
+        name=above_label,
+        showlegend=True,
     )
 )
 
@@ -105,15 +148,39 @@ fig.update_geos(
 )
 
 fig.update_layout(
-    title=f"{TARGET_YEAR}년 전국 시군구별 고령화율(65세 이상 인구 비율)",
+    title=f"{TARGET_YEAR}년 전국 시군구별 고령화율 ({threshold}% 기준)",
     height=800,
     margin=dict(l=0, r=0, t=60, b=0),
+    legend_title_text="구분",
+    legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.0,
+        xanchor="left",
+        x=0,
+    ),
 )
 
-st.plotly_chart(fig, use_container_width=True)
+map_col, table_col = st.columns([3, 1])
+
+with map_col:
+    st.plotly_chart(fig, use_container_width=True)
+
+with table_col:
+    st.write("**🔥 고령화율 TOP 5**")
+    top5_df = (
+        aging_df.sort_values("고령화율", ascending=False)
+        .head(5)[["시군구", "시도", "고령화율"]]
+        .reset_index(drop=True)
+    )
+    top5_df.index = top5_df.index + 1  # 1등부터 5등까지 순위처럼 보이도록
+    st.dataframe(
+        top5_df.rename(columns={"고령화율": "고령화율(%)"}),
+        use_container_width=True,
+    )
 
 st.caption(
-    "💡 색이 진할수록 65세 이상 인구 비율이 높은 지역이에요. "
+    "💡 진한 색은 기준 이상, 회색은 기준 미만인 시군구예요. "
     "지역 위에 마우스를 올리면 시군구 이름과 정확한 고령화율(%)을 확인할 수 있어요. "
     "지도를 드래그하거나 스크롤하면 확대·축소도 가능합니다."
 )
