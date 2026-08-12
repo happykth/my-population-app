@@ -94,20 +94,43 @@ aging_df = df_year[["코드", "동", "시군구", "전체인구", "고령인구"
 #     제대로 그려지지 않을 수 있어요. 꼭 필요한 것만 추려줍니다)
 # -----------------------------------------------------------
 nyj_codes = set(aging_df["코드"])
-geojson_data = {
-    "type": "FeatureCollection",
-    "features": [
-        f
-        for f in geojson_data["features"]
-        if f["properties"]["코드"] in nyj_codes
-    ],
-}
 
-# 여기서도 혹시 코드가 하나도 안 맞으면 바로 원인을 알 수 있도록 안내합니다.
+
+def clean_code(value):
+    # 코드 형식이 살짝 달라도(공백, 소수점 등) 매칭되도록 숫자만 남깁니다.
+    return "".join(ch for ch in str(value) if ch.isdigit())
+
+
+nyj_codes_clean = {clean_code(c) for c in nyj_codes}
+
+# 원본 GeoJSON의 코드 목록을 먼저 기록해둡니다 (매칭 실패 시 진단용).
+original_geo_codes = [f["properties"]["코드"] for f in geojson_data["features"]]
+
+matched_features = []
+for f in geojson_data["features"]:
+    code_clean = clean_code(f["properties"]["코드"])
+    if code_clean in nyj_codes_clean:
+        # 지도(geojson)와 표(aging_df) 양쪽 모두 정제된 코드로 통일해서
+        # plotly가 두 쪽을 정확히 같은 문자열로 매칭하도록 맞춰줍니다.
+        f["properties"]["코드"] = code_clean
+        matched_features.append(f)
+
+geojson_data = {"type": "FeatureCollection", "features": matched_features}
+
+# 인구 데이터 쪽 '코드'도 같은 정제된 형식으로 맞춰줍니다.
+aging_df["코드"] = aging_df["코드"].apply(clean_code)
+
+# 여기서도 혹시 코드가 하나도 안 맞으면, 양쪽 코드 예시를 직접 보여줘서
+# 정확히 뭐가 다른지 바로 확인할 수 있게 합니다.
 if len(geojson_data["features"]) == 0:
+    sample_data_codes = sorted(nyj_codes)[:5]
+    sample_geo_codes = sorted(original_geo_codes)[:5]
     st.error(
-        "지도 경계 데이터와 인구 데이터의 '코드'가 하나도 맞지 않아요. "
-        "GeoJSON 파일의 코드 형식을 다시 확인해주세요."
+        "지도 경계 데이터와 인구 데이터의 '코드'가 하나도 맞지 않아요.\n\n"
+        f"- 인구 데이터 코드 예시: {sample_data_codes} "
+        f"(타입: {type(sample_data_codes[0]).__name__ if sample_data_codes else '없음'})\n"
+        f"- GeoJSON 코드 예시: {sample_geo_codes} "
+        f"(타입: {type(sample_geo_codes[0]).__name__ if sample_geo_codes else '없음'})"
     )
     st.stop()
 
