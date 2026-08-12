@@ -1,4 +1,5 @@
 import json
+import unicodedata
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -41,10 +42,27 @@ with st.spinner("인구 데이터와 지도 경계 데이터를 불러오는 중
 # -----------------------------------------------------------
 # 2) 2026년 · 남양주시 데이터만 남기기
 #    ('남양주시'는 '시도'가 아니라 '시군구' 값이에요)
+#    한글은 같은 글자처럼 보여도 내부 인코딩 방식(NFC/NFD)이 달라서
+#    문자열 비교가 실패하는 경우가 있어요. unicodedata.normalize로
+#    양쪽을 같은 방식(NFC)으로 맞춰준 뒤 비교합니다.
 # -----------------------------------------------------------
 TARGET_YEAR = 2026
-TARGET_SIGUNGU = "남양주시"
-df_year = df[(df["연도"] == TARGET_YEAR) & (df["시군구"] == TARGET_SIGUNGU)].copy()
+TARGET_SIGUNGU = unicodedata.normalize("NFC", "남양주시")
+
+df["시군구_정규화"] = df["시군구"].apply(
+    lambda x: unicodedata.normalize("NFC", str(x)) if pd.notna(x) else x
+)
+df_year = df[(df["연도"] == TARGET_YEAR) & (df["시군구_정규화"] == TARGET_SIGUNGU)].copy()
+
+# 혹시라도 데이터가 비어 있으면(필터 조건이 안 맞으면) 원인을 바로 알 수 있도록 안내하고 멈춥니다.
+if df_year.empty:
+    available = sorted(df.loc[df["연도"] == TARGET_YEAR, "시군구_정규화"].unique())
+    st.error(
+        f"'{TARGET_SIGUNGU}' 데이터를 찾을 수 없어요. "
+        f"'시군구' 열에 있는 값 중 이렇게 시작하는 것들을 확인해보세요: "
+        f"{[s for s in available if '남양' in s or '남양주' in s]}"
+    )
+    st.stop()
 
 st.info(f"**{TARGET_YEAR}년 남양주시** 행정동 데이터를 기준으로 그렸어요.")
 
@@ -84,6 +102,14 @@ geojson_data = {
         if f["properties"]["코드"] in nyj_codes
     ],
 }
+
+# 여기서도 혹시 코드가 하나도 안 맞으면 바로 원인을 알 수 있도록 안내합니다.
+if len(geojson_data["features"]) == 0:
+    st.error(
+        "지도 경계 데이터와 인구 데이터의 '코드'가 하나도 맞지 않아요. "
+        "GeoJSON 파일의 코드 형식을 다시 확인해주세요."
+    )
+    st.stop()
 
 # -----------------------------------------------------------
 # 4-0-1) 지도 확대 범위를 직접 계산하기
